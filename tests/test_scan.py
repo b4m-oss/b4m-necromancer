@@ -735,3 +735,52 @@ def test_cli_dump_config_conflict_with_other_options(monkeypatch, capsys):
     assert "cannot be combined" in captured.err
     assert called == {}
 
+
+def test_cli_dry_run_check_success(monkeypatch):
+    called = {}
+
+    def fake_check():
+        called["check"] = True
+        return True
+
+    monkeypatch.setattr(scan, "run_dry_run_check", fake_check)
+
+    exit_code = scan.main(["--dry-run", "check"])
+    assert exit_code == 0
+    assert called.get("check") is True
+
+
+def test_cli_dry_run_check_with_config_error(monkeypatch, capsys):
+    exit_code = scan.main(["--dry-run", "check", "receipt"])
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "must not be combined" in captured.err
+
+
+def test_cli_dry_run_scan_requires_config(monkeypatch, capsys):
+    exit_code = scan.main(["--dry-run", "scan"])
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "requires a config name" in captured.err
+
+
+def test_cli_dry_run_scan_success(monkeypatch):
+    called = {}
+
+    def fake_single(mode):
+        called["mode"] = mode
+        return True
+
+    monkeypatch.setattr(scan, "run_dry_run_single_scan", fake_single)
+
+    exit_code = scan.main(["--dry-run", "scan", "receipt"])
+    assert exit_code == 0
+    assert called.get("mode") == "receipt"
+
+
+def test_cli_dry_run_conflicts_with_other_options(monkeypatch, capsys):
+    exit_code = scan.main(["--dry-run", "check", "--dump-config", "receipt"])
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "--dry-run cannot be combined" in captured.err
+

@@ -12,6 +12,9 @@ import threading
 from .upload_adapter import get_uploader_from_config
 from .nextcloud import load_nextcloud_config
 
+A4_PAGE_WIDTH_MM = 210
+A4_PAGE_HEIGHT_MM = 297
+
 def is_blank_page(image_path, white_threshold=187, white_ratio_threshold=0.995):
     """
     Helper to decide whether the page is almost blank (mostly white).
@@ -949,6 +952,148 @@ class ScannerManager:
             print(f"Error while warming up scanner: {e}")
             print("The scanner may be disconnected or busy.")
             return False
+
+def run_dry_run_check() -> bool:
+    """
+    Run a dry-run connectivity check without performing any real scan
+    or cloud upload. This verifies:
+    - scanner discovery
+    - scanner warm-up / self-test
+    - cloud endpoint connectivity (Nextcloud or future providers)
+    """
+    print("=== Dry-run: environment check ===")
+    scanner = ScannerManager.get_instance()
+
+    print("\n[Scanner detection]")
+    scanner_available = scanner.check_scanner_available()
+    print(f"Scanner available: {scanner_available}")
+
+    print("\n[Scanner warm-up]")
+    warm_up_ok = scanner.warm_up_scanner()
+    print(f"Scanner warm-up: {warm_up_ok}")
+
+    print("\n[Cloud connectivity]")
+    try:
+        from .nextcloud import test_nextcloud_connection
+
+        cloud_ok = test_nextcloud_connection()
+    except Exception as e:
+        print(f"Cloud connectivity check error: {e}")
+        cloud_ok = False
+    print(f"Cloud connectivity: {cloud_ok}")
+
+    all_ok = scanner_available and warm_up_ok and cloud_ok
+    print("\n[Summary]")
+    print(f"Scanner: {'OK' if scanner_available else 'NG'} / "
+          f"Warm-up: {'OK' if warm_up_ok else 'NG'} / "
+          f"Cloud: {'OK' if cloud_ok else 'NG'}")
+    return all_ok
+
+
+def run_dry_run_single_scan(config_name: str) -> bool:
+    """
+    Run a single-page dry-run scan:
+    - Uses the specified mode for resolution/mode/source
+    - Forces A4 single-sided scan
+    - Saves exactly one page under tmp/DRYRUN-YYYYMMDDHHMMSS/
+    - Does NOT perform any upload or deletion
+    """
+    print(f"=== Dry-run: single test scan (mode={config_name}) ===")
+
+    configs = load_scan_configs()
+    if config_name not in configs:
+        print(f"Error: configuration '{config_name}' is not defined in mode.json")
+        return False
+
+    cfg = configs[config_name]
+    scanner_cfg = load_scanner_config()
+    device_name = scanner_cfg["device_name"]
+    resolution = cfg.get("resolution", 200)
+    mode = cfg.get("mode", "Color")
+    if isinstance(mode, str) and mode:
+        mode = mode[0].upper() + mode[1:].lower()
+    else:
+        mode = "Color"
+    source = cfg.get("source", scanner_cfg.get("default_source", "ADF Duplex"))
+
+    scanner = ScannerManager.get_instance()
+    print("\n[Scanner warm-up]")
+    if not scanner.warm_up_scanner():
+        print("Error: failed to warm up the scanner for dry-run single scan")
+        return False
+
+    # Create dedicated dry-run tmp directory
+    timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+    base_tmp = Path(__file__).resolve().parent.parent / "tmp"
+    tmp_dir = base_tmp / f"DRYRUN-{timestamp}"
+    os.makedirs(tmp_dir, exist_ok=True)
+    output_path = tmp_dir / f"{config_name}-dryrun-1.jpg"
+
+    print("\n[Scan command]")
+    cmd_parts = [
+        f'scanimage --device="{device_name}"',
+        f"--resolution={resolution}",
+        f"--mode={mode}",
+        "--format=jpeg",
+        f'--source="{source}"',
+        f"--page-width={A4_PAGE_WIDTH_MM}",
+        f"--page-height={A4_PAGE_HEIGHT_MM}",
+    ]
+
+    # Optional software options, mirroring batch_scan_with_scanimage where reasonable
+    if cfg.get("swdeskew"):
+        cmd_parts.append("--swdeskew=yes")
+    if cfg.get("swcrop"):
+        cmd_parts.append("--swcrop=yes")
+    if cfg.get("ald"):
+        cmd_parts.append("--ald=yes")
+
+    cmd_parts.append(f"-o {output_path}")
+    cmd_str = " ".join(cmd_parts)
+    print(f"Executing command: {cmd_str}")
+
+    try:
+        result = subprocess.run(
+            cmd_str,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if result.stdout:
+            print("\nscanimage stdout:")
+            print(result.stdout)
+        if result.stderr:
+            print("\nscanimage stderr:")
+            print(result.stderr)
+
+        if result.returncode != 0:
+            print(f"Dry-run scan failed with status {result.returncode}")
+            return False
+    except subprocess.TimeoutExpired:
+        print("Dry-run scan process timed out.")
+        # fall through to file existence check
+    except Exception as e:
+        print(f"Exception during dry-run single scan: {e}")
+        return False
+
+    if not os.path.exists(output_path):
+        print(f"Error: expected output file was not created: {output_path}")
+        return False
+
+    size = os.path.getsize(output_path)
+    if size <= 0:
+        print(f"Error: output file is empty: {output_path}")
+        return False
+
+    print("\n[Result]")
+    print(f"Dry-run scan succeeded.")
+    print(f"- output directory: {tmp_dir}")
+    print(f"- output file     : {output_path.name} ({size / 1024:.1f} KB)")
+    print("No upload or deletion was performed (dry-run mode).")
+    return True
+
+
 def main(argv=None):
     import argparse
 
@@ -965,10 +1110,33 @@ def main(argv=None):
         metavar="MODE",
         help="Dump effective scan and upload configuration for the given mode",
     )
+    parser.add_argument(
+        "--dry-run",
+        choices=["check", "scan"],
+        help="Run in dry-run mode: 'check' for environment check, 'scan' for single-page test scan",
+    )
 
     args = parser.parse_args(argv)
 
     try:
+        if args.dry_run:
+            # Dry-run cannot be combined with other operational flags.
+            if args.dump_config or args.list or args.output:
+                print("Error: --dry-run cannot be combined with --dump-config, --list, or --output.", file=sys.stderr)
+                return 1
+            if args.dry_run == "check":
+                if args.config:
+                    print("Error: --dry-run check must not be combined with a config name.", file=sys.stderr)
+                    return 1
+                ok = run_dry_run_check()
+                return 0 if ok else 1
+            if args.dry_run == "scan":
+                if not args.config:
+                    print("Error: --dry-run scan requires a config name.", file=sys.stderr)
+                    return 1
+                ok = run_dry_run_single_scan(args.config)
+                return 0 if ok else 1
+
         if args.dump_config:
             if args.config or args.output:
                 print("Error: --dump-config cannot be combined with other scan options.", file=sys.stderr)
