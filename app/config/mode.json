@@ -1,0 +1,42 @@
+{
+    "keybindings": {
+        "1": "diary",
+        "2": "receipt",
+        "3": "flyer"
+    },
+    "receipt": {
+        "mode": "color",
+        "resolution": 200,
+        "source": "ADF Front",
+        "compression": "high",
+        "file_format": "jpeg",
+        "swcrop": true,
+        "swdeskew": true,
+        "max_page_height_mm": 600,
+        "ald": true
+    },
+    "diary": {
+        "mode": "color",
+        "resolution": 200,
+        "source": "ADF Duplex",
+        "compression": "medium",
+        "file_format": "pdf",
+        "swcrop": false,
+        "swdeskew": true,
+        "page_width_mm": 210,
+        "page_height_mm": 305,
+        "blank_filter": true
+    },
+    "flyer": {
+        "mode": "color",
+        "resolution": 300,
+        "source": "ADF Duplex",
+        "compression": "low",
+        "file_format": "jpeg",
+        "swcrop": false,
+        "swdeskew": true,
+        "max_page_height_mm": 400,
+        "ald": true,
+        "blank_filter": true
+    }
+}

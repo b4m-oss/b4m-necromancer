@@ -1,0 +1,11 @@
+{
+  "provider": "nextcloud",
+  "nextcloud": {
+    "endpoint": "https://your-nextcloud-server.com/remote.php/dav/files/username/",
+    "username": "your_username",
+    "password": "your_password",
+    "upload_folder": "Scans/",
+    "delete_after_upload": true
+  }
+}
+

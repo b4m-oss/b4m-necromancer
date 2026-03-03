@@ -1,0 +1,54 @@
+# macOS
+.DS_Store
+
+# Cursor / IDE
+.cursor/
+
+# Shell config accidentally left in repo root
+.bash_logout
+
+# Python common
+**/__pycache__/
+**/*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments (patterns for safety)
+venv/
+.venv/
+env/
+*.venv/
+
+# === Files copied from RPZ2W $HOME under app/ ===
+# === Environment-specific files are excluded from Git ===
+
+# Shell / history files
+app/.bash_history
+app/.bash_logout
+app/.bashrc
+app/.profile
+app/.python_history
+app/.lesshst
+app/.sudo_as_admin_successful
+
+# Caches / editor-specific data
+app/.cache/
+app/.cursor/
+app/.cursor-server/
+
+# SSH config (secrets)
+app/.ssh/
+
+# Pi-side venv (myscan) is not tracked in Git
+app/myscan/
+
+# === Things to ignore inside application tree (app) ===
+
+# Temporary directory for scan outputs
+app/tmp/
+
+# Nextcloud secrets for real deployments
+app/config/upload.json
+
+# Log files under app (if any)
+app/**/*.log

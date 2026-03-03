@@ -1,0 +1,18 @@
+[Unit]
+Description=Document Scanner Keypad Service
+After=network.target
+
+[Service]
+Type=simple
+User=__USER__
+Group=__USER__
+WorkingDirectory=__APP_WORKDIR__
+ExecStart=/usr/bin/python3 __APP_WORKDIR__/keypad_daemon.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=scanner-keypad
+
+[Install]
+WantedBy=multi-user.target 
