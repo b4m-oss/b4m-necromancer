@@ -262,9 +262,7 @@ def test_upload_directory_to_nextcloud_no_files(monkeypatch, tmp_path, capsys):
     ok = nextcloud.upload_directory_to_nextcloud(str(empty_dir))
     captured = capsys.readouterr()
     assert ok is False
-    # Implementation may fail early while trying to create a remote directory.
-    # We only assert that the function reports failure; detailed message is implementation-dependent.
-    assert captured.out  # some message is printed
+    assert "has no files" in captured.out
 
 
 def test_upload_pdf_to_nextcloud_missing(monkeypatch, tmp_path):
