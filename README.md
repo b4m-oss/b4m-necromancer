@@ -90,13 +90,13 @@ When you want to verify **“which exact command and upload path will be used fo
 From a development checkout:
 
 ```bash
-python -m app.lib.scan --dump-config diary
+python3 -m app.lib.scan --dump-config diary
 ```
 
-If `scan.py` is installed as a CLI entry point:
+On an installed system, the `install.sh` script adds a `necro` alias to your shell (for bash/zsh). After opening a new shell (or `source ~/.bashrc` / `source ~/.zshrc`), you can simply run:
 
 ```bash
-scan.py --dump-config diary
+necro --dump-config diary
 ```
 
 #### Sample output (excerpt)

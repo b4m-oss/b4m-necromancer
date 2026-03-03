@@ -13,8 +13,13 @@ echo "Installing required packages..."
 sudo apt-get update
 sudo apt-get install -y python3-pip python3-evdev sane-utils
 
-echo "Installing Python packages..."
-pip3 install evdev pillow
+echo "Creating Python virtual environment..."
+mkdir -p "$APP_DST_DIR"
+python3 -m venv "${APP_DST_DIR}/venv"
+
+echo "Installing Python packages into virtual environment..."
+"${APP_DST_DIR}/venv/bin/pip" install --upgrade pip
+"${APP_DST_DIR}/venv/bin/pip" install -r "${APP_SRC_DIR}/requirements.txt"
 
 echo "Deploying application files to ${APP_DST_DIR}..."
 mkdir -p "$APP_DST_DIR"
@@ -35,7 +40,22 @@ sudo cp "$APP_DST_DIR/scanner_service.service" /etc/systemd/system/
 sudo sed -i "s/User=__USER__/User=$USER/g" /etc/systemd/system/scanner_service.service
 sudo sed -i "s/Group=__USER__/Group=$USER/g" /etc/systemd/system/scanner_service.service
 sudo sed -i "s|WorkingDirectory=__APP_WORKDIR__|WorkingDirectory=${APP_DST_DIR}|g" /etc/systemd/system/scanner_service.service
-sudo sed -i "s|ExecStart=/usr/bin/python3 __APP_WORKDIR__/keypad_daemon.py|ExecStart=/usr/bin/python3 ${APP_DST_DIR}/keypad_daemon.py|g" /etc/systemd/system/scanner_service.service
+sudo sed -i "s|ExecStart=/usr/bin/python3 __APP_WORKDIR__/keypad_daemon.py|ExecStart=${APP_DST_DIR}/venv/bin/python ${APP_DST_DIR}/keypad_daemon.py|g" /etc/systemd/system/scanner_service.service
+
+echo "Adding convenient CLI alias (necro) to shell config..."
+for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
+    if [ -f "$rc" ]; then
+        if ! grep -q "b4m-necromancer: CLI aliases" "$rc"; then
+            cat >> "$rc" <<'EOF'
+# b4m-necromancer: CLI aliases
+alias necro="$HOME/app/venv/bin/python -m app.lib.scan"
+EOF
+            echo "Alias added to $rc"
+        else
+            echo "Alias already present in $rc"
+        fi
+    fi
+done
 
 echo "Making scripts executable..."
 chmod +x "${APP_DST_DIR}/keypad_daemon.py"

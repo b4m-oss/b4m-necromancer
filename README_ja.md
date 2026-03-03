@@ -86,13 +86,13 @@ chmod +x install.sh
 開発環境から直接実行する場合:
 
 ```bash
-python -m app.lib.scan --dump-config diary
+python3 -m app.lib.scan --dump-config diary
 ```
 
-インストール済みの環境で `scan.py` を直接呼び出す場合:
+インストール済みの環境では、`install.sh` により `necro` エイリアスがシェルに追加されるため、次のようにも実行できます（新しいシェルを開くか、`source ~/.bashrc` / `source ~/.zshrc` を実行してから利用してください）。
 
 ```bash
-scan.py --dump-config diary
+necro --dump-config diary
 ```
 
 #### 出力イメージ（抜粋）
