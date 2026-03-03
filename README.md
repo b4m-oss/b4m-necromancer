@@ -78,6 +78,19 @@ Pressing another digit overwrites the previous one.
 See [Troubleshooting](./docs/en/troubleshoot.md)  
 日本語版: [トラブルシューティング](./docs/ja/troubleshoot.md)
 
+## Support
+
+**Disclaimer**  
+This software is provided as-is, without any official support.  
+The author assumes no responsibility for any damage or loss caused by the use of this software.  
+By using this software, you agree to these terms.
+
+### Paid support
+
+If you need custom work such as support for other scanners or other cloud storage services,  
+paid support and customization are available.  
+Please contact [B4M LLC](https://b4m.co.jp/).
+
 ## License
 
 This project is released under the MIT License. See the `LICENSE` file for details.
