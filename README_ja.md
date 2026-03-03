@@ -69,6 +69,61 @@ chmod +x install.sh
 
 数字キーを押してから5秒以内にEnterを押さない場合、入力はクリアされます。また、別の数字キーを押すと入力は上書きされます。
 
+### コンフィグダンプ (`--dump-config`)
+
+本番スキャンの前に、**「最終的にどのコマンド・どのクラウドパスで動くか」** を確認したい場合は、`--dump-config` オプションを使います。
+
+- 読み込まれる設定:
+  - `app/config/scanner.json`
+  - `app/config/mode.json`
+  - `app/config/upload.json`
+- ダンプ内容:
+  - 実際に `scanimage` に渡されるバッチスキャン用コマンドライン
+  - スキャン結果のアップロード先情報（プロバイダ／エンドポイント／アップロードフォルダ／リモートパスのパターン など）
+
+#### 使い方
+
+開発環境から直接実行する場合:
+
+```bash
+python -m app.lib.scan --dump-config diary
+```
+
+インストール済みの環境で `scan.py` を直接呼び出す場合:
+
+```bash
+scan.py --dump-config diary
+```
+
+#### 出力イメージ（抜粋）
+
+```text
+Mode: diary
+
+=== scanimage command (batch) ===
+scanimage --device="fujitsu:ScanSnap iX500:17872" --resolution=200 ...
+
+Parameters:
+- device_name: fujitsu:ScanSnap iX500:17872
+- resolution: 200
+- mode: Color
+- source: ADF Duplex
+- format: jpeg
+- output_pattern: /.../tmp/{timestamp}/diary-%d.jpg
+- extra_options: ['--swdeskew=yes', '--page-width=210', '--page-height=305']
+
+=== upload target ===
+provider          : nextcloud
+endpoint          : https://example.com/remote.php/dav/files/user/
+upload_folder     : Scans/
+strategy          : pdf
+remote_path       : Scans/diary-{timestamp}.pdf
+delete_after_upload: False
+```
+
+- 実際の `{timestamp}` には実行時のタイムスタンプが入ります。
+- **注意:** `--dump-config` は設定を計算して表示するだけで、スキャンやアップロードは行いません（ドライに確認できます）。
+
 ## サポート
 
 **おことわり**

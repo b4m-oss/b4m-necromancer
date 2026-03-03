@@ -4,12 +4,13 @@ import subprocess
 import datetime
 import time
 import shutil
+import sys
 from pathlib import Path
 from PIL import Image, ImageStat
 import threading
 
 from .upload_adapter import get_uploader_from_config
-
+from .nextcloud import load_nextcloud_config
 
 def is_blank_page(image_path, white_threshold=187, white_ratio_threshold=0.995):
     """
@@ -51,6 +52,173 @@ def create_timestamp_dir():
     tmp_dir = Path(__file__).resolve().parent.parent / 'tmp' / timestamp
     os.makedirs(tmp_dir, exist_ok=True)
     return tmp_dir, timestamp
+
+
+def build_batch_scan_command(config_name: str):
+    """
+    Build the batch scan command and related metadata for the given mode.
+    This does not execute any external command and is safe for use in
+    diagnostic utilities such as --dump-config or future self-checks.
+    """
+    configs = load_scan_configs()
+    if config_name not in configs:
+        raise ValueError(f"configuration '{config_name}' is not defined in mode.json")
+
+    cfg = configs[config_name]
+
+    # Scan settings
+    scanner_cfg = load_scanner_config()
+    device_name = scanner_cfg["device_name"]
+    resolution = cfg.get('resolution', 200)
+    mode = cfg.get('mode', 'Color')
+    if isinstance(mode, str) and mode:
+        mode_normalized = mode[0].upper() + mode[1:].lower()
+    else:
+        mode_normalized = "Color"
+
+    source = cfg.get('source', scanner_cfg.get('default_source', 'ADF Duplex'))
+
+    # scanimage batch always uses JPEG as intermediate format
+    img_format = 'jpeg'
+
+    # Output pattern (use a placeholder timestamp so that the pattern
+    # matches the real runtime layout but is deterministic for display)
+    placeholder_ts = "{timestamp}"
+    tmp_base = Path(__file__).resolve().parent.parent / 'tmp' / placeholder_ts
+    output_pattern = str(tmp_base / f"{config_name}-%d.jpg")
+
+    # Extra options from mode.json (keep in sync with batch_scan_with_scanimage)
+    extra_opts = []
+    if cfg.get('swdeskew'):
+        extra_opts.append('--swdeskew=yes')
+    if cfg.get('swcrop'):
+        extra_opts.append('--swcrop=yes')
+    if cfg.get('ald'):
+        extra_opts.append('--ald=yes')
+
+    page_width_mm = cfg.get('page_width_mm')
+    page_height_mm = cfg.get('page_height_mm')
+    max_page_height_mm = cfg.get('max_page_height_mm')
+    if page_width_mm:
+        extra_opts.append(f'--page-width={page_width_mm}')
+    if page_height_mm:
+        extra_opts.append(f'--page-height={page_height_mm}')
+    elif max_page_height_mm:
+        extra_opts.append(f'--page-height={max_page_height_mm}')
+
+    extra_str = ""
+    if extra_opts:
+        extra_str = " " + " ".join(extra_opts)
+
+    batch_cmd = (
+        f'scanimage --device="{device_name}" '
+        f'--resolution={resolution} '
+        f'--mode={mode_normalized} '
+        f'--format={img_format} '
+        f'--source="{source}" '
+        f'--batch={output_pattern} '
+        f'--batch-count=-1 '
+        f'--batch-start=1 '
+        f'--progress'
+        f'{extra_str} '
+    )
+
+    effective_params = {
+        "device_name": device_name,
+        "resolution": resolution,
+        "mode": mode_normalized,
+        "source": source,
+        "format": img_format,
+        "output_pattern": output_pattern,
+        "extra_options": extra_opts,
+    }
+
+    return {
+        "type": "batch",
+        "mode": config_name,
+        "command": batch_cmd,
+        "output_pattern": output_pattern,
+        "effective_params": effective_params,
+    }
+
+
+def build_upload_target_info(config_name: str):
+    """
+    Build information about the upload target for the given mode.
+    Currently assumes Nextcloud as the provider but returns a generic
+    structure so that future providers can be added.
+    """
+    # Mode is validated here to mirror build_batch_scan_command behaviour
+    configs = load_scan_configs()
+    if config_name not in configs:
+        raise ValueError(f"configuration '{config_name}' is not defined in mode.json")
+
+    cfg = configs[config_name]
+    file_format = str(cfg.get("file_format", "")).upper()
+
+    try:
+        nc_cfg = load_nextcloud_config()
+    except Exception:
+        # If upload configuration is not available, still return a
+        # minimal structure so that dump-config can report something.
+        nc_cfg = {}
+
+    provider = "nextcloud"
+    endpoint = nc_cfg.get("endpoint", "<missing-endpoint>")
+    upload_folder = nc_cfg.get("upload_folder", "Scans/")
+    delete_after_upload = nc_cfg.get("delete_after_upload", False)
+
+    # For PDF modes, batch_scan_with_scanimage() creates
+    # {config_name}-{timestamp}.pdf under tmp/ and upload_pdf_to_nextcloud()
+    # sends it as upload_folder + filename. For non-PDF modes, a directory
+    # named by timestamp is uploaded.
+    if file_format == "PDF":
+        remote_path_pattern = f"{upload_folder}{config_name}-" + "{timestamp}.pdf"
+        strategy = "pdf"
+    else:
+        remote_path_pattern = upload_folder + "{timestamp}/"
+        strategy = "directory"
+
+    return {
+        "provider": provider,
+        "mode": config_name,
+        "endpoint": endpoint,
+        "upload_folder": upload_folder,
+        "delete_after_upload": delete_after_upload,
+        "strategy": strategy,
+        "remote_path_pattern": remote_path_pattern,
+    }
+
+
+def dump_config(mode_name: str) -> str:
+    """
+    Build a human-readable dump of the effective scan and upload
+    configuration for the given mode.
+    """
+    batch = build_batch_scan_command(mode_name)
+    upload = build_upload_target_info(mode_name)
+
+    lines = []
+    lines.append(f"Mode: {mode_name}")
+    lines.append("")
+    lines.append("=== scanimage command (batch) ===")
+    lines.append(batch["command"])
+    lines.append("")
+    lines.append("Parameters:")
+    params = batch.get("effective_params", {})
+    for key in sorted(params.keys()):
+        lines.append(f"- {key}: {params[key]}")
+
+    lines.append("")
+    lines.append("=== upload target ===")
+    lines.append(f"provider          : {upload.get('provider')}")
+    lines.append(f"endpoint          : {upload.get('endpoint')}")
+    lines.append(f"upload_folder     : {upload.get('upload_folder')}")
+    lines.append(f"strategy          : {upload.get('strategy')}")
+    lines.append(f"remote_path       : {upload.get('remote_path_pattern')}")
+    lines.append(f"delete_after_upload: {upload.get('delete_after_upload')}")
+
+    return "\n".join(lines)
 
 def convert_images_to_pdf(image_dir, output_pdf):
     """Convert all images in the given directory into a single PDF."""
@@ -781,35 +949,57 @@ class ScannerManager:
             print(f"Error while warming up scanner: {e}")
             print("The scanner may be disconnected or busy.")
             return False
-
-if __name__ == "__main__":  # pragma: no cover
+def main(argv=None):
     import argparse
+
+    if argv is None:
+        argv = sys.argv[1:]
 
     parser = argparse.ArgumentParser(description="Scan documents with scanimage and save the result")
     parser.add_argument("config", nargs='?', help="Configuration name in mode.json (e.g. receipt)")
     parser.add_argument("--output", help="Output file path for single-page scan (e.g. output.png)")
     parser.add_argument("--list", action="store_true", help="List available scanners")
     parser.add_argument("--no-upload", action="store_true", help="Skip uploading to cloud")
-    
-    args = parser.parse_args()
-    
+    parser.add_argument(
+        "--dump-config",
+        metavar="MODE",
+        help="Dump effective scan and upload configuration for the given mode",
+    )
+
+    args = parser.parse_args(argv)
+
     try:
+        if args.dump_config:
+            if args.config or args.output:
+                print("Error: --dump-config cannot be combined with other scan options.", file=sys.stderr)
+                return 1
+            try:
+                text = dump_config(args.dump_config)
+            except ValueError as e:
+                print(f"Error: {e}", file=sys.stderr)
+                return 1
+            print(text)
+            return 0
         if args.list:
             # List scanners
             scanners = get_scanner_list()
             print(f"Available scanners:\n{scanners}")
-            sys.exit(0)
-        elif args.output and args.config:
+            return 0
+        if args.output and args.config:
             # Single-page mode
             success = single_scan_with_scanimage(args.output, args.config, not args.no_upload)
-            sys.exit(0 if success else 1)
-        elif args.config:
+            return 0 if success else 1
+        if args.config:
             # Batch scan mode
             result = batch_scan_with_scanimage(args.config, not args.no_upload)
-            sys.exit(0 if result else 1)
-        else:
-            parser.print_help()
-            sys.exit(0)
+            return 0 if result else 1
+
+        parser.print_help()
+        return 0
     except Exception as e:
         print(f"Unexpected error: {e}")
-        sys.exit(1)
+        return 1
+
+
+if __name__ == "__main__":  # pragma: no cover
+    sys.exit(main())
