@@ -304,7 +304,7 @@ class KeypadDaemon:
         logging.info("Keypad monitoring stopped")
 
 
-def main():
+def main():  # pragma: no cover
     """Main entry point."""
     # Parse CLI arguments
     import argparse
@@ -342,5 +342,5 @@ def main():
     return 0
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     sys.exit(main()) 
