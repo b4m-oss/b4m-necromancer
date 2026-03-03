@@ -246,7 +246,7 @@ class KeypadMonitor:
         print("Stopped monitoring keypad")
 
 
-def main():
+def main():  # pragma: no cover
     """Main entry point (interactive keypad scanner)."""
     print("Keypad scanner - startup")
     print(f"Debug mode: {'ON' if DEBUG_MODE else 'OFF'}")
@@ -277,5 +277,5 @@ def main():
     return 0
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     sys.exit(main()) 

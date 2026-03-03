@@ -8,7 +8,7 @@ from pathlib import Path
 from PIL import Image, ImageStat
 import threading
 
-from upload_adapter import get_uploader_from_config
+from .upload_adapter import get_uploader_from_config
 
 
 def is_blank_page(image_path, white_threshold=187, white_ratio_threshold=0.995):
@@ -743,7 +743,7 @@ class ScannerManager:
             print("The scanner may be disconnected or busy.")
             return False
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     import argparse
 
     parser = argparse.ArgumentParser(description="Scan documents with scanimage and save the result")
