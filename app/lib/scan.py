@@ -127,10 +127,15 @@ def load_scan_configs(config_path: str = str(Path(__file__).resolve().parent.par
 def load_scanner_config(config_path: str = str(Path(__file__).resolve().parent.parent / 'config' / 'scanner.json')):
     """
     Load scanner configuration from scanner.json.
-    If the file is missing or invalid, return iX500 defaults.
+    If the file is missing or invalid, return defaults (iX500 example).
     """
     default_cfg = {
+        # Full SANE device name example. Users should override this to match their environment.
         "device_name": "fujitsu:ScanSnap iX500:17872",
+        # Keywords used when searching scanimage -L output.
+        # These are lowercased and compared against the device name and description.
+        "vendor_keyword": "fujitsu",
+        "model_keyword": "ix500",
         "backend": "fujitsu",
         "default_source": "ADF Duplex",
         "test_timeout_sec": 10,
@@ -219,8 +224,8 @@ def monitor_scan_directory(directory, callback):
         # Get all JPG files currently in the directory
         try:
             current_files = set([f for f in os.listdir(directory) 
-                               if f.lower().endswith('.jpg') and 
-                               os.path.isfile(os.path.join(directory, f))])
+                              if f.lower().endswith('.jpg') and 
+                              os.path.isfile(os.path.join(directory, f))])
         except Exception as e:
             print(f"Directory read error: {e}")
             current_files = set()
@@ -304,7 +309,7 @@ def batch_scan_with_scanimage(config_name: str, upload_to_nextcloud=True):
     
     # Scan settings
     scanner_cfg = load_scanner_config()
-    device_name = scanner_cfg.get("device_name", "fujitsu:ScanSnap iX500:17872")
+    device_name = scanner_cfg["device_name"]
     resolution = cfg.get('resolution', 200)
     mode = cfg.get('mode', 'Color')
     # scanimage is usually case-insensitive, but normalize for clarity
@@ -554,7 +559,7 @@ def single_scan_with_scanimage(output_path: str, config_name: str, upload_to_nex
     
     # Scan settings
     scanner_cfg = load_scanner_config()
-    device_name = scanner_cfg.get("device_name", "fujitsu:ScanSnap iX500:17872")
+    device_name = scanner_cfg["device_name"]
     resolution = cfg.get('resolution', 200)
     mode = cfg.get('mode', 'Color').lower()
     
@@ -651,7 +656,7 @@ def find_scanner():
     sane.init()
     # Search for devices whose model name contains ix500 and usb
     devices = [dev for dev in sane.get_devices() 
-               if 'ix500' in dev[1].lower() and 'usb' in dev[1].lower()]
+              if 'ix500' in dev[1].lower() and 'usb' in dev[1].lower()]
     if devices:
         return devices[0][0]
     return None
@@ -667,7 +672,10 @@ class ScannerManager:
     
     def __init__(self):
         scanner_cfg = load_scanner_config()
-        self.device_name = scanner_cfg.get("device_name", "fujitsu:ScanSnap iX500:17872")
+        self.device_name = scanner_cfg["device_name"]
+        # Store lowercase keywords for detection logic
+        self.vendor_keyword = str(scanner_cfg.get("vendor_keyword", "")).lower()
+        self.model_keyword = str(scanner_cfg.get("model_keyword", "")).lower()
         self.initialized = False
         self.scanner_process = None
         self.available = True
@@ -681,27 +689,58 @@ class ScannerManager:
             list_cmd = "scanimage -L"
             result = subprocess.run(list_cmd, shell=True, capture_output=True, text=True, timeout=15)
             
-            if result.returncode == 0 and self.device_name in result.stdout:
+            stdout = result.stdout or ""
+            stdout_lower = stdout.lower()
+
+            # If the configured device name already appears, treat it as found.
+            if result.returncode == 0 and self.device_name in stdout:
                 print(f"Scanner found: {self.device_name}")
                 return True
-            else:
-                print("Scanner not found. Available scanners:")
-                print(result.stdout)
-                
-                # Try to find a partial match for the device name
-                if "fujitsu" in result.stdout.lower() and "ix500" in result.stdout.lower():
-                    print("Detected ScanSnap iX500; updating device name")
-                    # Update device_name
-                    import re
-                    device_match = re.search(r'(fujitsu:ScanSnap iX500:[^\s`\'\"]+)', result.stdout)
-                    if device_match:
-                        self.device_name = device_match.group(1)
-                        print(f"New device name: {self.device_name}")
-                        return True
-                
-                # Fall back to the configured device name
-                print(f"Falling back to configured device name: {self.device_name}")
-                return True
+
+            print("Scanner not found by exact device_name. Available scanners:")
+            print(stdout)
+
+            # Try to find a device whose name/description contains the configured keywords.
+            # This allows switching to a different scanner by only changing scanner.json.
+            try:
+                import re
+
+                # scanimage -L output typically has lines like:
+                # device `fujitsu:ScanSnap iX500:17872' is a FUJITSU ScanSnap iX500 scanner
+                candidates = []
+                for line in stdout.splitlines():
+                    m = re.search(r"device `([^']+)'", line)
+                    if not m:
+                        continue
+                    dev_name = m.group(1)
+                    line_lower = line.lower()
+                    dev_lower = dev_name.lower()
+                    candidates.append((dev_name, line_lower, dev_lower))
+
+                for dev_name, line_lower, dev_lower in candidates:
+                    # If keywords are configured, require both to match either device name or description.
+                    if self.vendor_keyword and self.model_keyword:
+                        if (self.vendor_keyword in dev_lower or self.vendor_keyword in line_lower) and (
+                            self.model_keyword in dev_lower or self.model_keyword in line_lower
+                        ):
+                            print("Detected scanner by vendor/model keywords; updating device name")
+                            self.device_name = dev_name
+                            print(f"New device name: {self.device_name}")
+                            return True
+
+                # No keyword-based match found. Fall back to the first discovered device, if any.
+                if candidates:
+                    print("No keyword match found; falling back to first discovered device.")
+                    self.device_name = candidates[0][0]
+                    print(f"Fallback device name: {self.device_name}")
+                    return True
+
+            except Exception as e_inner:
+                print(f"Error while parsing scanimage output: {e_inner}")
+
+            # As a last resort, fall back to the configured device name.
+            print(f"Falling back to configured device name: {self.device_name}")
+            return True
         except Exception as e:
             print(f"Error while detecting scanner: {e}")
             print(f"Using configured scanner: {self.device_name}")

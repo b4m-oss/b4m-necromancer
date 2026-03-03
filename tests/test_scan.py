@@ -26,6 +26,8 @@ def test_load_scanner_config_defaults_when_missing(tmp_path):
     missing = tmp_path / "scanner.json"
     result = scan.load_scanner_config(str(missing))
     assert result["device_name"] == "fujitsu:ScanSnap iX500:17872"
+    assert result["vendor_keyword"] == "fujitsu"
+    assert result["model_keyword"] == "ix500"
     assert result["backend"] == "fujitsu"
     assert result["default_source"] == "ADF Duplex"
     assert result["test_timeout_sec"] == 10
@@ -33,14 +35,20 @@ def test_load_scanner_config_defaults_when_missing(tmp_path):
 
 def test_load_scanner_config_merge_with_defaults(tmp_path):
     cfg_path = tmp_path / "scanner.json"
-    custom = {"device_name": "custom_device", "test_timeout_sec": 5}
+    custom = {
+        "device_name": "custom_device",
+        "vendor_keyword": "custom_vendor",
+        "test_timeout_sec": 5,
+    }
     cfg_path.write_text(json.dumps(custom), encoding="utf-8")
 
     result = scan.load_scanner_config(str(cfg_path))
     # Overridden
     assert result["device_name"] == "custom_device"
+    assert result["vendor_keyword"] == "custom_vendor"
     assert result["test_timeout_sec"] == 5
     # Defaulted
+    assert result["model_keyword"] == "ix500"
     assert result["backend"] == "fujitsu"
     assert result["default_source"] == "ADF Duplex"
 
