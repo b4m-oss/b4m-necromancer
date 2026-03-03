@@ -579,5 +579,470 @@ def test_single_scan_with_scanimage_timeout_file_exists(monkeypatch, tmp_path):
 
     ok = scan.single_scan_with_scanimage(str(out), "receipt", upload_to_nextcloud=False)
     assert ok is True
+    
 
+def test_build_batch_scan_command_basic(monkeypatch):
+    # Minimal mode/scanner configs
+    monkeypatch.setattr(
+        scan,
+        "load_scan_configs",
+        lambda: {
+            "receipt": {
+                "resolution": 200,
+                "mode": "color",
+                "source": "ADF Duplex",
+                "file_format": "jpeg",
+                "swdeskew": True,
+                "swcrop": True,
+                "ald": True,
+                "max_page_height_mm": 600,
+            }
+        },
+    )
+    monkeypatch.setattr(
+        scan,
+        "load_scanner_config",
+        lambda: {
+            "device_name": "dev",
+            "backend": "fujitsu",
+            "default_source": "ADF Duplex",
+            "test_timeout_sec": 10,
+        },
+    )
+
+    info = scan.build_batch_scan_command("receipt")
+    assert info["type"] == "batch"
+    assert info["mode"] == "receipt"
+    cmd = info["command"]
+    assert "scanimage" in cmd
+    assert "--resolution=200" in cmd
+    assert "--mode=Color" in cmd
+    # placeholder patterns are used for timestamp and filename
+    assert "{timestamp}" in info["output_pattern"]
+    assert "receipt-%d.jpg" in info["output_pattern"]
+
+
+def test_build_batch_scan_command_mode_not_found(monkeypatch):
+    monkeypatch.setattr(scan, "load_scan_configs", lambda: {})
+    with pytest.raises(ValueError):
+        scan.build_batch_scan_command("unknown")
+
+
+def test_build_upload_target_info_nextcloud(monkeypatch):
+    # Mode config (only file_format is relevant here)
+    monkeypatch.setattr(
+        scan,
+        "load_scan_configs",
+        lambda: {
+            "diary": {
+                "file_format": "PDF",
+            }
+        },
+    )
+
+    def fake_load_nc():
+        return {
+            "endpoint": "https://example.com/remote.php/dav/files/user/",
+            "upload_folder": "Scans/",
+            "delete_after_upload": True,
+        }
+
+    monkeypatch.setattr(scan, "load_nextcloud_config", fake_load_nc)
+
+    info = scan.build_upload_target_info("diary")
+    assert info["provider"] == "nextcloud"
+    assert info["endpoint"].startswith("https://example.com")
+    assert info["upload_folder"] == "Scans/"
+    assert info["strategy"] == "pdf"
+    assert "Scans/diary-" in info["remote_path_pattern"]
+    assert "{timestamp}.pdf" in info["remote_path_pattern"]
+
+
+def test_dump_config_text_contains_sections(monkeypatch):
+    def fake_build_batch(mode):
+        return {
+            "type": "batch",
+            "mode": mode,
+            "command": 'scanimage --device="dev" --resolution=200 --mode=Color',
+            "output_pattern": "/tmp/{timestamp}/receipt-%d.jpg",
+            "effective_params": {
+                "device_name": "dev",
+                "resolution": 200,
+                "mode": "Color",
+            },
+        }
+
+    def fake_build_upload(mode):
+        return {
+            "provider": "nextcloud",
+            "mode": mode,
+            "endpoint": "https://example.com/remote.php/dav/files/user/",
+            "upload_folder": "Scans/",
+            "delete_after_upload": False,
+            "strategy": "directory",
+            "remote_path_pattern": "Scans/{timestamp}/",
+        }
+
+    monkeypatch.setattr(scan, "build_batch_scan_command", fake_build_batch)
+    monkeypatch.setattr(scan, "build_upload_target_info", fake_build_upload)
+
+    text = scan.dump_config("receipt")
+    assert "=== scanimage command (batch) ===" in text
+    assert "=== upload target ===" in text
+    assert "scanimage --device=\"dev\"" in text
+    assert "endpoint" in text
+    assert "upload_folder" in text
+
+
+def test_cli_dump_config_success(monkeypatch, capsys):
+    def fake_dump(mode):
+        assert mode == "receipt"
+        return "DUMP-OK"
+
+    monkeypatch.setattr(scan, "dump_config", fake_dump)
+
+    exit_code = scan.main(["--dump-config", "receipt"])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "DUMP-OK" in captured.out
+
+
+def test_cli_dump_config_invalid_mode(monkeypatch, capsys):
+    def fake_dump(mode):
+        raise ValueError(f"configuration '{mode}' is not defined in mode.json")
+
+    monkeypatch.setattr(scan, "dump_config", fake_dump)
+
+    exit_code = scan.main(["--dump-config", "unknown"])
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "configuration 'unknown' is not defined in mode.json" in captured.err
+
+
+def test_cli_dump_config_conflict_with_other_options(monkeypatch, capsys):
+    # dump_config 自体は呼ばれない想定
+    called = {}
+
+    def fake_dump(mode):
+        called["mode"] = mode
+        return "SHOULD NOT BE CALLED"
+
+    monkeypatch.setattr(scan, "dump_config", fake_dump)
+
+    exit_code = scan.main(["--dump-config", "receipt", "receipt"])
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "cannot be combined" in captured.err
+    assert called == {}
+
+
+def test_cli_dry_run_check_success(monkeypatch):
+    called = {}
+
+    def fake_check():
+        called["check"] = True
+        return True
+
+    monkeypatch.setattr(scan, "run_dry_run_check", fake_check)
+
+    exit_code = scan.main(["--dry-run", "check"])
+    assert exit_code == 0
+    assert called.get("check") is True
+
+
+def test_cli_dry_run_check_with_config_error(monkeypatch, capsys):
+    exit_code = scan.main(["--dry-run", "check", "receipt"])
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "must not be combined" in captured.err
+
+
+def test_cli_dry_run_scan_requires_config(monkeypatch, capsys):
+    exit_code = scan.main(["--dry-run", "scan"])
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "requires a config name" in captured.err
+
+
+def test_cli_dry_run_scan_success(monkeypatch):
+    called = {}
+
+    def fake_single(mode):
+        called["mode"] = mode
+        return True
+
+    monkeypatch.setattr(scan, "run_dry_run_single_scan", fake_single)
+
+    exit_code = scan.main(["--dry-run", "scan", "receipt"])
+    assert exit_code == 0
+    assert called.get("mode") == "receipt"
+
+
+def test_cli_dry_run_conflicts_with_other_options(monkeypatch, capsys):
+    exit_code = scan.main(["--dry-run", "check", "--dump-config", "receipt"])
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "--dry-run cannot be combined" in captured.err
+
+
+def test_run_health_check_all_ok(monkeypatch, capsys, tmp_path):
+    # Scanners list
+    monkeypatch.setattr(
+        scan,
+        "get_scanner_list",
+        lambda: "device `dev' is a scanner\n",
+    )
+
+    # Configured scanner via ScannerManager
+    class DummyScanner:
+        def __init__(self):
+            self.device_name = "dev"
+
+        def check_scanner_available(self):
+            return True
+
+        def warm_up_scanner(self):
+            return True
+
+    monkeypatch.setattr(
+        scan.ScannerManager,
+        "get_instance",
+        classmethod(lambda cls: DummyScanner()),
+    )
+
+    # Cloud config (Nextcloud, reachable)
+    def fake_load_upload():
+        return {
+            "provider": "nextcloud",
+            "nextcloud": {
+                "endpoint": "https://example.com/remote.php/dav/files/user/",
+            },
+        }
+
+    monkeypatch.setattr(scan, "_load_upload_config_raw", fake_load_upload)
+
+    def fake_load_nc():
+        return {
+            "endpoint": "https://example.com/remote.php/dav/files/user/",
+            "upload_folder": "Scans/",
+        }
+
+    monkeypatch.setattr(scan, "load_nextcloud_config", lambda: fake_load_nc())
+
+    import app.lib.nextcloud as nc_mod
+
+    monkeypatch.setattr(nc_mod, "test_nextcloud_connection", lambda: True)
+
+    # Daemon running
+    monkeypatch.setattr(
+        scan,
+        "check_keypad_daemon_running",
+        lambda: (True, ["user      1234  0.0  keypad_daemon.py"]),
+    )
+
+    ok = scan.run_health_check()
+    captured = capsys.readouterr()
+    assert ok is True
+    assert "=== Health Check ===" in captured.out
+    assert "[Scanners]" in captured.out
+    assert "[Configured scanner]" in captured.out
+    assert "[Cloud]" in captured.out
+    assert "[Daemon]" in captured.out
+    assert "running: true" in captured.out
+
+
+def test_run_health_check_cloud_ng(monkeypatch, capsys):
+    monkeypatch.setattr(
+        scan,
+        "get_scanner_list",
+        lambda: "device `dev' is a scanner\n",
+    )
+
+    class DummyScanner:
+        def __init__(self):
+            self.device_name = "dev"
+
+        def check_scanner_available(self):
+            return True
+
+        def warm_up_scanner(self):
+            return True
+
+    monkeypatch.setattr(
+        scan.ScannerManager,
+        "get_instance",
+        classmethod(lambda cls: DummyScanner()),
+    )
+
+    def fake_load_upload():
+        return {
+            "provider": "nextcloud",
+            "nextcloud": {
+                "endpoint": "https://example.com/remote.php/dav/files/user/",
+            },
+        }
+
+    monkeypatch.setattr(scan, "_load_upload_config_raw", fake_load_upload)
+
+    def fake_load_nc():
+        return {
+            "endpoint": "https://example.com/remote.php/dav/files/user/",
+            "upload_folder": "Scans/",
+        }
+
+    monkeypatch.setattr(scan, "load_nextcloud_config", lambda: fake_load_nc())
+
+    import app.lib.nextcloud as nc_mod
+
+    monkeypatch.setattr(nc_mod, "test_nextcloud_connection", lambda: False)
+
+    monkeypatch.setattr(
+        scan,
+        "check_keypad_daemon_running",
+        lambda: (True, []),
+    )
+
+    ok = scan.run_health_check()
+    captured = capsys.readouterr()
+    assert ok is False
+    assert "reachable: false" in captured.out
+
+
+def test_run_health_check_provider_not_nextcloud(monkeypatch, capsys):
+    monkeypatch.setattr(
+        scan,
+        "get_scanner_list",
+        lambda: "device `dev' is a scanner\n",
+    )
+
+    class DummyScanner:
+        def __init__(self):
+            self.device_name = "dev"
+
+        def check_scanner_available(self):
+            return True
+
+        def warm_up_scanner(self):
+            return True
+
+    monkeypatch.setattr(
+        scan.ScannerManager,
+        "get_instance",
+        classmethod(lambda cls: DummyScanner()),
+    )
+
+    def fake_load_upload():
+        return {
+            "provider": "local",
+            "local": {"endpoint": "/some/path"},
+        }
+
+    monkeypatch.setattr(scan, "_load_upload_config_raw", fake_load_upload)
+
+    monkeypatch.setattr(
+        scan,
+        "check_keypad_daemon_running",
+        lambda: (True, []),
+    )
+
+    ok = scan.run_health_check()
+    captured = capsys.readouterr()
+    assert ok is True
+    assert "provider: local" in captured.out
+    assert "reachable: N/A" in captured.out
+
+
+def test_run_health_check_scanners_fail(monkeypatch, capsys):
+    def fake_get_scanners():
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(scan, "get_scanner_list", fake_get_scanners)
+
+    class DummyScanner:
+        def __init__(self):
+            self.device_name = "dev"
+
+        def check_scanner_available(self):
+            return True
+
+        def warm_up_scanner(self):
+            return True
+
+    monkeypatch.setattr(
+        scan.ScannerManager,
+        "get_instance",
+        classmethod(lambda cls: DummyScanner()),
+    )
+
+    def fake_load_upload():
+        return {
+            "provider": "nextcloud",
+            "nextcloud": {
+                "endpoint": "https://example.com/remote.php/dav/files/user/",
+            },
+        }
+
+    monkeypatch.setattr(scan, "_load_upload_config_raw", fake_load_upload)
+
+    def fake_load_nc():
+        return {
+            "endpoint": "https://example.com/remote.php/dav/files/user/",
+            "upload_folder": "Scans/",
+        }
+
+    monkeypatch.setattr(scan, "load_nextcloud_config", lambda: fake_load_nc())
+
+    import app.lib.nextcloud as nc_mod
+
+    monkeypatch.setattr(nc_mod, "test_nextcloud_connection", lambda: True)
+
+    monkeypatch.setattr(
+        scan,
+        "check_keypad_daemon_running",
+        lambda: (True, []),
+    )
+
+    ok = scan.run_health_check()
+    captured = capsys.readouterr()
+    assert ok is False
+    assert "Scanners: NG" in captured.out
+
+
+def test_cli_health_success(monkeypatch, capsys):
+    called = {}
+
+    def fake_health():
+        called["run"] = True
+        print("=== Health Check ===")
+        return True
+
+    monkeypatch.setattr(scan, "run_health_check", fake_health)
+
+    exit_code = scan.main(["--health"])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert called.get("run") is True
+    assert "Health Check" in captured.out
+
+
+def test_cli_health_failure(monkeypatch):
+    def fake_health():
+        return False
+
+    monkeypatch.setattr(scan, "run_health_check", fake_health)
+
+    exit_code = scan.main(["--health"])
+    assert exit_code == 1
+
+
+def test_cli_health_conflict_with_other_options(monkeypatch, capsys):
+    def fake_health():
+        raise AssertionError("should not be called")
+
+    monkeypatch.setattr(scan, "run_health_check", fake_health)
+
+    exit_code = scan.main(["--health", "--dump-config", "receipt"])
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "--health cannot be combined" in captured.err
 

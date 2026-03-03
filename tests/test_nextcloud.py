@@ -346,3 +346,84 @@ def test_upload_pdf_to_nextcloud_delete_after(monkeypatch, tmp_path):
     # ファイルは削除されているはず
     assert not pdf.exists()
 
+
+def test_test_nextcloud_connection_ok(monkeypatch):
+    cfg = {
+        "endpoint": "https://example.com/remote.php/dav/files/user/",
+        "username": "user",
+        "password": "pass",
+    }
+
+    def fake_load_config():
+        return cfg
+
+    class DummyResult:
+        def __init__(self, stdout, stderr="", returncode=0):
+            self.stdout = stdout
+            self.stderr = stderr
+            self.returncode = returncode
+
+    def fake_run(cmd, shell, capture_output, text):
+        # Simulate successful 200 response
+        return DummyResult("HTTP/1.1 200 OK\n")
+
+    monkeypatch.setattr(nextcloud, "load_nextcloud_config", fake_load_config)
+    monkeypatch.setattr(nextcloud.subprocess, "run", fake_run)
+
+    ok = nextcloud.test_nextcloud_connection()
+    assert ok is True
+
+
+def test_test_nextcloud_connection_error_status(monkeypatch):
+    cfg = {
+        "endpoint": "https://example.com/remote.php/dav/files/user/",
+        "username": "user",
+        "password": "pass",
+    }
+
+    def fake_load_config():
+        return cfg
+
+    class DummyResult:
+        def __init__(self, stdout, stderr="", returncode=0):
+            self.stdout = stdout
+            self.stderr = stderr
+            self.returncode = returncode
+
+    def fake_run(cmd, shell, capture_output, text):
+        # Simulate 500 error
+        return DummyResult("HTTP/1.1 500 Internal Server Error\n")
+
+    monkeypatch.setattr(nextcloud, "load_nextcloud_config", fake_load_config)
+    monkeypatch.setattr(nextcloud.subprocess, "run", fake_run)
+
+    ok = nextcloud.test_nextcloud_connection()
+    assert ok is False
+
+
+def test_test_nextcloud_connection_no_status_line(monkeypatch):
+    cfg = {
+        "endpoint": "https://example.com/remote.php/dav/files/user/",
+        "username": "user",
+        "password": "pass",
+    }
+
+    def fake_load_config():
+        return cfg
+
+    class DummyResult:
+        def __init__(self, stdout, stderr="", returncode=0):
+            self.stdout = stdout
+            self.stderr = stderr
+            self.returncode = returncode
+
+    def fake_run(cmd, shell, capture_output, text):
+        # No HTTP status line in stdout
+        return DummyResult("")
+
+    monkeypatch.setattr(nextcloud, "load_nextcloud_config", fake_load_config)
+    monkeypatch.setattr(nextcloud.subprocess, "run", fake_run)
+
+    ok = nextcloud.test_nextcloud_connection()
+    assert ok is False
+

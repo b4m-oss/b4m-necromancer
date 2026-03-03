@@ -30,19 +30,30 @@
   **「実際にはスキャン・アップロードせず、どのように動くかを確認したい」**。
 - 実機スキャンやクラウドへの書き込みを行わないことで、安全に試運転できるモードを提供する。
 
-### 方針（イメージ）
+### 方針（実装済み仕様）
 
 - `scan.py` の CLI に `--dry-run` オプションを追加。
-- `--dry-run` 指定時の挙動例:
-  - スキャンそのもの（`scanimage` 実行）をスキップ、もしくは 1 枚だけ短時間でテストスキャンするなど、要検討。
-  - 少なくとも「どのコマンドが実行されるか」「どのディレクトリ / ファイル名に保存されるか」「どのクラウドパスにアップロードされるか」をログに出す。
-  - アップロード処理（`uploader.upload_*`）と削除処理（tmp 削除、`delete_after_upload`）はスキップ。
+  - `scan.py --dry-run check`
+    - スキャナ検出 (`scanimage -L` ベース)・ウォームアップ (`scanimage -n` ベース)・Nextcloud エンドポイントへの HTTP 接続テストを **実スキャン・アップロードなし** で実行。
+    - 結果を `Scanner: OK/NG / Warm-up: OK/NG / Cloud: OK/NG` 形式でサマリ表示し、どれか 1 つでも NG なら非 0 終了コードを返す。
+  - `scan.py --dry-run scan <mode>`
+    - 上記と同じスキャナウォームアップロジックを通した上で、指定モード（例: `diary`）の解像度・モード・給紙設定を使い、**A4 片面カラー 1 枚のみ** をテストスキャン。
+    - 出力先は `tmp/DRYRUN-YYYYMMDDHHMMSS/<mode>-dryrun-1.jpg` のような一時ディレクトリで、クラウドへのアップロードや `delete_after_upload` による削除は一切行わない。
+- `--dry-run` は次のオプションと排他的:
+  - `--dump-config`, `--list`, `--output`, 通常のバッチスキャン（`config` 単独指定）と同時には使えない。
+  - 不正な組み合わせ時はエラーメッセージを標準エラーに出力して終了する。
 
 ### 実装のポイント
 
-- `upload_to_nextcloud` フラグや `delete_after_upload` のような既存パラメータと組み合わせて、
-  - 実行経路のなるべく入口で「dry_run ならここから先は no-op にする」という判定を置く。
-- テストモードであっても、「コマンド組み立てロジック」は通るようにしておくと、後述の `--dump-config` 的な効果も得られる。
+- ローカル疎通チェック:
+  - `ScannerManager.check_scanner_available()` により、`scanner.json` の設定に基づいて利用可能なスキャナを検出。
+  - `ScannerManager.warm_up_scanner()` により、`scanimage --device=... -n` を実行してウォームアップ状態を確認。
+  - Nextcloud 側は `test_nextcloud_connection()` で、`upload.json` の `nextcloud.endpoint` に対して認証付き `curl -I`（HEAD）を投げ、HTTP ステータス 2xx〜3xx を OK とみなす。
+- 1 枚テストスキャン:
+  - `load_scan_configs()` / `load_scanner_config()` を使って、実運用と同じ解像度・モード・給紙モードを利用。
+  - 用紙サイズはコード側で A4 固定（幅 210mm、高さ 297mm）として `--page-width` / `--page-height` を指定。
+  - `scanimage` の実行結果（stdout / stderr / return code）をログに出し、出力ファイルの存在とサイズを検証したうえで成功/失敗を判定。
+- いずれのドライランモードでも「実際のアップロード処理 (`uploader.upload_*` 系) や tmp ディレクトリ削除」は発生せず、安全に動作確認のみを行える。
 
 ---
 

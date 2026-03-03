@@ -73,6 +73,61 @@ Use the keypad as follows:
 If you do not press Enter within 5 seconds after pressing a digit, the input buffer is cleared.  
 Pressing another digit overwrites the previous one.
 
+### Configuration dump (`--dump-config`)
+
+When you want to verify **“which exact command and upload path will be used for a given mode”** before running a real scan, use the `--dump-config` option.
+
+- Config files read:
+  - `app/config/scanner.json`
+  - `app/config/mode.json`
+  - `app/config/upload.json`
+- It prints:
+  - The effective `scanimage` batch command line for the selected mode
+  - Upload target information (provider, endpoint, upload folder, remote path pattern, delete-after-upload flag, etc.)
+
+#### Usage
+
+From a development checkout:
+
+```bash
+python -m app.lib.scan --dump-config diary
+```
+
+If `scan.py` is installed as a CLI entry point:
+
+```bash
+scan.py --dump-config diary
+```
+
+#### Sample output (excerpt)
+
+```text
+Mode: diary
+
+=== scanimage command (batch) ===
+scanimage --device="fujitsu:ScanSnap iX500:17872" --resolution=200 ...
+
+Parameters:
+- device_name: fujitsu:ScanSnap iX500:17872
+- resolution: 200
+- mode: Color
+- source: ADF Duplex
+- format: jpeg
+- output_pattern: /.../tmp/{timestamp}/diary-%d.jpg
+- extra_options: ['--swdeskew=yes', '--page-width=210', '--page-height=305']
+
+=== upload target ===
+provider          : nextcloud
+endpoint          : https://example.com/remote.php/dav/files/user/
+upload_folder     : Scans/
+strategy          : pdf
+remote_path       : Scans/diary-{timestamp}.pdf
+delete_after_upload: False
+```
+
+- At runtime, `{timestamp}` is replaced with the actual timestamp used for the scan.
+- **Note:** `--dump-config` is read-only: it does not perform any scan or upload; it just shows what would happen.
+
 ## Troubleshooting
 
 See [Troubleshooting](./docs/en/troubleshoot.md)  
