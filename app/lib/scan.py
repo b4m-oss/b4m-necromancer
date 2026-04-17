@@ -9,9 +9,18 @@ from pathlib import Path
 from PIL import Image, ImageStat
 import threading
 
-from .upload_adapter import get_uploader_from_config
-from .nextcloud import load_nextcloud_config
-from .upload_adapter import _load_upload_config_raw
+try:
+    from .upload_adapter import get_uploader_from_config
+    from .nextcloud import load_nextcloud_config
+    from .upload_adapter import _load_upload_config_raw
+except ImportError:
+    # Deploy as `python -m lib.scan` with only ~/app on path; tolerate odd package resolution.
+    _app_root = Path(__file__).resolve().parent.parent
+    if str(_app_root) not in sys.path:
+        sys.path.insert(0, str(_app_root))
+    from lib.upload_adapter import get_uploader_from_config
+    from lib.nextcloud import load_nextcloud_config
+    from lib.upload_adapter import _load_upload_config_raw
 
 A4_PAGE_WIDTH_MM = 210
 A4_PAGE_HEIGHT_MM = 297
@@ -975,7 +984,10 @@ def run_dry_run_check() -> bool:
 
     print("\n[Cloud connectivity]")
     try:
-        from .nextcloud import test_nextcloud_connection
+        try:
+            from .nextcloud import test_nextcloud_connection
+        except ImportError:
+            from lib.nextcloud import test_nextcloud_connection
 
         cloud_ok = test_nextcloud_connection()
     except Exception as e:
@@ -1177,7 +1189,10 @@ def run_health_check() -> bool:
             cfg = load_nextcloud_config()
             endpoint = cfg.get("endpoint", "<missing-endpoint>")
             try:
-                from .nextcloud import test_nextcloud_connection
+                try:
+                    from .nextcloud import test_nextcloud_connection
+                except ImportError:
+                    from lib.nextcloud import test_nextcloud_connection
 
                 reachable = bool(test_nextcloud_connection())
             except Exception as e:
