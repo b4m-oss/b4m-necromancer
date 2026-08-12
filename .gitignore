@@ -64,3 +64,4 @@ app/config/upload.json
 
 # Log files under app (if any)
 app/**/*.log
+
