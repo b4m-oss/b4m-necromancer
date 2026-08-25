@@ -1,6 +1,11 @@
 # b4m-necromancer - revive your old scanner with Raspberry Pi ZERO 2
 
-[![CI](https://github.com/b4m-oss/necromancer/actions/workflows/ci.yml/badge.svg)](https://github.com/b4m-oss/necromancer/actions/workflows/ci.yml)
+[![CI](https://github.com/b4moss/necromancer/actions/workflows/ci.yml/badge.svg)](https://github.com/b4moss/necromancer/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/codecov/c/github/b4moss/necromancer)](https://codecov.io/gh/b4moss/necromancer)
+[![PyPI](https://img.shields.io/pypi/v/b4m-necromancer)](https://pypi.org/project/b4m-necromancer/)
+[![Release](https://img.shields.io/github/v/release/b4moss/necromancer)](https://github.com/b4moss/necromancer/releases)
+[![License](https://img.shields.io/github/license/b4moss/necromancer)](https://github.com/b4moss/necromancer/blob/main/LICENSE)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/b4moss/necromancer/badge)](https://securityscorecards.dev/viewer/?uri=github.com/b4moss/necromancer)
 
 [English](./README.md)
 
